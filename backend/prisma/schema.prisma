@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  name            String
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  defaultCurrency String   @default("EUR") @map("default_currency")
+  language        String   @default("pt-BR")
+  status          String   @default("active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  groupMembers             GroupMember[]
+  accounts                 Account[]
+  transactions             Transaction[]
+  sharedExpensesCreated    SharedExpense[]
+  sharedExpenseParticipants SharedExpenseParticipant[]
+  settlementsFrom          Settlement[]              @relation("SettlementFrom")
+  settlementsTo            Settlement[]              @relation("SettlementTo")
+  goals                    Goal[]
+  debts                    Debt[]
+  creditCards              CreditCard[]
+  categories               Category[]
+  createdGroups            Group[]
+  transfers                Transfer[]
+
+  @@map("users")
+}
+
+model Group {
+  id              String   @id @default(uuid())
+  name            String
+  defaultCurrency String   @default("EUR") @map("default_currency")
+  createdByUserId String   @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  createdBy      User            @relation(fields: [createdByUserId], references: [id])
+  members        GroupMember[]
+  accounts       Account[]
+  transactions   Transaction[]
+  sharedExpenses SharedExpense[]
+  settlements    Settlement[]
+  goals          Goal[]
+  debts          Debt[]
+  categories     Category[]
+  creditCards    CreditCard[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id       String   @id @default(uuid())
+  groupId  String   @map("group_id")
+  userId   String   @map("user_id")
+  role     String   @default("member")
+  status   String   @default("active")
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  group Group @relation(fields: [groupId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([groupId, userId])
+  @@map("group_members")
+}
+
+model Account {
+  id                String   @id @default(uuid())
+  ownerUserId       String?  @map("owner_user_id")
+  groupId           String?  @map("group_id")
+  name              String
+  type              String
+  initialBalance    Decimal  @default(0) @map("initial_balance") @db.Decimal(15, 2)
+  currency          String   @default("EUR")
+  color             String?
+  isActive          Boolean  @default(true) @map("is_active")
+  includeInNetWorth Boolean  @default(true) @map("include_in_net_worth")
+  visibility        String   @default("private")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  owner        User?        @relation(fields: [ownerUserId], references: [id])
+  group        Group?       @relation(fields: [groupId], references: [id])
+  transactions Transaction[]
+  creditCards  CreditCard[]
+  transfersOut Transfer[]   @relation("TransferFrom")
+  transfersIn  Transfer[]   @relation("TransferTo")
+
+  @@map("accounts")
+}
+
+model Category {
+  id                String     @id @default(uuid())
+  ownerUserId       String?    @map("owner_user_id")
+  groupId           String?    @map("group_id")
+  name              String
+  parentCategoryId  String?    @map("parent_category_id")
+  percentageGroup   String?    @map("percentage_group")
+  defaultPercentage Decimal?   @map("default_percentage") @db.Decimal(5, 2)
+  type              String
+  visibility        String     @default("private")
+  color             String?
+  icon              String?
+  isActive          Boolean    @default(true) @map("is_active")
+
+  owner         User?      @relation(fields: [ownerUserId], references: [id])
+  group         Group?     @relation(fields: [groupId], references: [id])
+  transactions  Transaction[]
+  subcategories Category[] @relation("CategoryParent")
+  parent        Category?  @relation("CategoryParent", fields: [parentCategoryId], references: [id])
+
+  @@map("categories")
+}
+
+model Transaction {
+  id             String   @id @default(uuid())
+  ownerUserId    String   @map("owner_user_id")
+  groupId        String?  @map("group_id")
+  accountId      String   @map("account_id")
+  date           DateTime
+  type           String
+  categoryId     String?  @map("category_id")
+  description    String
+  amount         Decimal  @db.Decimal(15, 2)
+  currency       String   @default("EUR")
+  visibility     String   @default("private")
+  isShared       Boolean  @default(false) @map("is_shared")
+  paidByUserId   String?  @map("paid_by_user_id")
+  sharedAmount   Decimal? @map("shared_amount") @db.Decimal(15, 2)
+  personalAmount Decimal? @map("personal_amount") @db.Decimal(15, 2)
+  notes          String?
+  receiptUrl     String?  @map("receipt_url")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  owner         User                    @relation(fields: [ownerUserId], references: [id])
+  group         Group?                  @relation(fields: [groupId], references: [id])
+  account       Account                 @relation(fields: [accountId], references: [id])
+  category      Category?               @relation(fields: [categoryId], references: [id])
+  sharedExpense SharedExpense?
+  installments  CreditCardInstallment[]
+
+  @@map("transactions")
+}
+
+model Transfer {
+  id            String   @id @default(uuid())
+  fromAccountId String   @map("from_account_id")
+  toAccountId   String   @map("to_account_id")
+  amount        Decimal  @db.Decimal(15, 2)
+  date          DateTime
+  description   String?
+  ownerUserId   String   @map("owner_user_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  fromAccount Account @relation("TransferFrom", fields: [fromAccountId], references: [id])
+  toAccount   Account @relation("TransferTo", fields: [toAccountId], references: [id])
+  owner       User    @relation(fields: [ownerUserId], references: [id])
+
+  @@map("transfers")
+}
+
+model SharedExpense {
+  id            String   @id @default(uuid())
+  transactionId String?  @unique @map("transaction_id")
+  groupId       String   @map("group_id")
+  paidByUserId  String   @map("paid_by_user_id")
+  totalAmount   Decimal  @map("total_amount") @db.Decimal(15, 2)
+  sharedAmount  Decimal  @map("shared_amount") @db.Decimal(15, 2)
+  splitMethod   String   @default("equal") @map("split_method")
+  date          DateTime
+  description   String
+  status        String   @default("open")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  transaction  Transaction?               @relation(fields: [transactionId], references: [id])
+  group        Group                      @relation(fields: [groupId], references: [id])
+  paidBy       User                       @relation(fields: [paidByUserId], references: [id])
+  participants SharedExpenseParticipant[]
+
+  @@map("shared_expenses")
+}
+
+model SharedExpenseParticipant {
+  id              String  @id @default(uuid())
+  sharedExpenseId String  @map("shared_expense_id")
+  userId          String  @map("user_id")
+  percentage      Decimal? @db.Decimal(5, 2)
+  amountDue       Decimal  @map("amount_due") @db.Decimal(15, 2)
+  amountPaid      Decimal  @default(0) @map("amount_paid") @db.Decimal(15, 2)
+  balance         Decimal  @default(0) @db.Decimal(15, 2)
+
+  sharedExpense SharedExpense @relation(fields: [sharedExpenseId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id])
+
+  @@unique([sharedExpenseId, userId])
+  @@map("shared_expense_participants")
+}
+
+model Settlement {
+  id             String    @id @default(uuid())
+  groupId        String    @map("group_id")
+  fromUserId     String    @map("from_user_id")
+  toUserId       String    @map("to_user_id")
+  amount         Decimal   @db.Decimal(15, 2)
+  referenceMonth String    @map("reference_month")
+  status         String    @default("pending")
+  paidAt         DateTime? @map("paid_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  group    Group @relation(fields: [groupId], references: [id])
+  fromUser User  @relation("SettlementFrom", fields: [fromUserId], references: [id])
+  toUser   User  @relation("SettlementTo", fields: [toUserId], references: [id])
+
+  @@map("settlements")
+}
+
+model Goal {
+  id            String    @id @default(uuid())
+  ownerUserId   String?   @map("owner_user_id")
+  groupId       String?   @map("group_id")
+  visibility    String    @default("private")
+  name          String
+  targetAmount  Decimal   @map("target_amount") @db.Decimal(15, 2)
+  currentAmount Decimal   @default(0) @map("current_amount") @db.Decimal(15, 2)
+  targetDate    DateTime? @map("target_date")
+  category      String?
+  priority      Int       @default(1)
+  status        String    @default("active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  owner User?  @relation(fields: [ownerUserId], references: [id])
+  group Group? @relation(fields: [groupId], references: [id])
+
+  @@map("goals")
+}
+
+model Debt {
+  id                    String    @id @default(uuid())
+  ownerUserId           String?   @map("owner_user_id")
+  groupId               String?   @map("group_id")
+  visibility            String    @default("private")
+  description           String
+  totalAmount           Decimal   @map("total_amount") @db.Decimal(15, 2)
+  paidAmount            Decimal   @default(0) @map("paid_amount") @db.Decimal(15, 2)
+  remainingAmount       Decimal   @map("remaining_amount") @db.Decimal(15, 2)
+  totalInstallments     Int?      @map("total_installments")
+  paidInstallments      Int       @default(0) @map("paid_installments")
+  remainingInstallments Int?      @map("remaining_installments")
+  installmentAmount     Decimal?  @map("installment_amount") @db.Decimal(15, 2)
+  interestRate          Decimal?  @map("interest_rate") @db.Decimal(5, 2)
+  dueDate               DateTime? @map("due_date")
+  status                String    @default("active")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  owner User?  @relation(fields: [ownerUserId], references: [id])
+  group Group? @relation(fields: [groupId], references: [id])
+
+  @@map("debts")
+}
+
+model CreditCard {
+  id               String   @id @default(uuid())
+  ownerUserId      String?  @map("owner_user_id")
+  groupId          String?  @map("group_id")
+  visibility       String   @default("private")
+  name             String
+  limit            Decimal  @db.Decimal(15, 2)
+  closingDay       Int      @map("closing_day")
+  dueDay           Int      @map("due_day")
+  paymentAccountId String?  @map("payment_account_id")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  owner          User?                   @relation(fields: [ownerUserId], references: [id])
+  group          Group?                  @relation(fields: [groupId], references: [id])
+  paymentAccount Account?                @relation(fields: [paymentAccountId], references: [id])
+  installments   CreditCardInstallment[]
+
+  @@map("credit_cards")
+}
+
+model CreditCardInstallment {
+  id                String   @id @default(uuid())
+  transactionId     String   @map("transaction_id")
+  creditCardId      String   @map("credit_card_id")
+  installmentNumber Int      @map("installment_number")
+  totalInstallments Int      @map("total_installments")
+  installmentAmount Decimal  @map("installment_amount") @db.Decimal(15, 2)
+  dueDate           DateTime @map("due_date")
+  status            String   @default("pending")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  creditCard  CreditCard  @relation(fields: [creditCardId], references: [id])
+
+  @@map("credit_card_installments")
+}
